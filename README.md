@@ -1,25 +1,64 @@
-HTTPCannon
+# HTTPCannon
 
-# build
+A simple high-performance HTTP load testing tool written in Go.
+
+## Build
+
+```bash
 go build -o httpcannon httpcannon.go
+```
 
-# unlimited goroutines, run forever
+## Usage
+
+### Run with unlimited goroutines (runs indefinitely)
+```bash
 ./httpcannon -url "https://example.com/page?foo=bar"
+```
 
-# fixed 200 goroutines for 60 seconds
+### Run with fixed 200 goroutines for 60 seconds
+```bash
 ./httpcannon -url "https://example.com" -threads 200 -duration 60s
+```
 
-# cap at 500 req/s, run for 5 minutes
+### Cap at 500 requests per second for 5 minutes
+```bash
 ./httpcannon -url "https://example.com" -threads 100 -rps 500 -duration 5m
+```
 
-# supply your own UA and Referer lists
+### Supply custom User-Agent and Referer lists
+```bash
 ./httpcannon -url "https://example.com" -ua-file useragents.txt -ref-file referers.txt
+```
 
-# 500 goroutines hammering, but only 50 TCP connections open at once
+### 500 goroutines with only 50 concurrent TCP connections
+```bash
 ./httpcannon -url "https://example.com" -threads 500 -conns 50
+```
 
-# fully unconstrained (default)
+### Fully unconstrained (default settings)
+```bash
 ./httpcannon -url "https://example.com"
+```
 
-# tight connection budget with a rate cap
+### Tight connection limit with rate cap
+```bash
 ./httpcannon -url "https://example.com" -conns 10 -rps 100 -duration 30s
+```
+
+## Flags
+
+| Flag        | Description |
+|------------|------------|
+| `-url`      | Target URL |
+| `-threads`  | Number of goroutines |
+| `-duration` | Test duration (e.g., `30s`, `5m`) |
+| `-rps`      | Requests per second limit |
+| `-conns`    | Maximum concurrent TCP connections |
+| `-ua-file`  | File containing User-Agent strings |
+| `-ref-file` | File containing Referer values |
+
+## Notes
+
+- If no limits are specified, the tool runs with maximum throughput.
+- Use `-rps` to avoid overwhelming the target server.
+- Combine flags for fine-grained control over load behavior.

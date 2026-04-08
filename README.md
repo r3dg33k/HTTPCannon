@@ -45,6 +45,19 @@ go build -o httpcannon httpcannon.go
 ./httpcannon -url "https://example.com" -conns 10 -rps 100 -duration 30s
 ```
 
+### mTLS: send client cert, but don't verify server cert
+```bash
+./httpcannon -url https://example.com -mtls-cert client.crt -mtls-key client.key
+```
+### mTLS: send client cert + verify server against your CA
+```bash
+./httpcannon -url https://example.com -mtls-cert client.crt -mtls-key client.key -mtls-ca ca.crt
+```
+### CA-only: no client cert, but verify server (standard TLS with custom CA)
+```bash
+./httpcannon -url https://internal-service:8443 -mtls-ca internal-ca.crt
+```
+
 ## Flags
 
 | Flag        | Description |
@@ -56,6 +69,10 @@ go build -o httpcannon httpcannon.go
 | `-conns`    | Maximum concurrent TCP connections |
 | `-ua-file`  | File containing User-Agent strings |
 | `-ref-file` | File containing Referer values |
+| `-mtls-cert` | Client certificate PEM file |
+| `-mtls-key` | Client private key PEM file |
+| `-mtls-ca` | CA certificate PEM to verify the server |
+
 
 ## Notes
 

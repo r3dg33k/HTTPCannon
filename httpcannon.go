@@ -1,17 +1,19 @@
-// ─────────────────────────────────────────────
-//  Project: HTTPCannon  (GoLang Port)
-//  Inspired by Project: Saphyra (Python3 Port)  
-//  Developed with the assistance of AI tools.
-//  Disclaimer - This software is provided for educational and research purposes only.
-//  The author is not responsible for any misuse, damages, or illegal activities conducted using this tool.
-//  By using this software, you agree that you are solely responsible for your actions and compliance with applicable laws and regulations.
-//  Attribution: Credit to original authors and contributors where applicable.
-// ─────────────────────────────────────────────
+// httpcannon
+// Inspired by niedong/saphyra — saphyra DDoS tool, fixed & ported to Python 3.
+// Ported and developed by AI.
+//
+// The author takes no responsibility for any damages caused by this tool.
+// Use only on systems you own or have explicit permission to test.
+//
+// MIT License
+// ---------------------------------------------------------------------------
+
 package main
 
 import (
 	"bufio"
 	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -140,17 +142,73 @@ type Cannon struct {
 	client     *http.Client
 }
 
-func newCannon(rawURL string, userAgents, referers []string, maxConns int) (*Cannon, error) {
+// mTLS config parsed from flags
+type MTLSConfig struct {
+	certFile string
+	keyFile  string
+	caFile   string
+}
+
+// buildTLSConfig returns a *tls.Config for plain TLS or mTLS depending on flags.
+func buildTLSConfig(m *MTLSConfig) (*tls.Config, error) {
+	cfg := &tls.Config{InsecureSkipVerify: true}
+
+	if m == nil || (m.certFile == "" && m.keyFile == "" && m.caFile == "") {
+		return cfg, nil // plain TLS, skip verification
+	}
+
+	// ── client certificate (mTLS) ─────────────────
+	if m.certFile != "" || m.keyFile != "" {
+		if m.certFile == "" || m.keyFile == "" {
+			return nil, fmt.Errorf("-mtls-cert and -mtls-key must both be provided")
+		}
+		cert, err := tls.LoadX509KeyPair(m.certFile, m.keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("loading client cert/key: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+
+	// ── custom CA (verify server cert against it) ─
+	if m.caFile != "" {
+		caPEM, err := os.ReadFile(m.caFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading CA file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("no valid certificates found in CA file %q", m.caFile)
+		}
+		cfg.RootCAs = pool
+		cfg.InsecureSkipVerify = false // we have a CA, verify properly
+	}
+
+	return cfg, nil
+}
+
+func newCannon(rawURL string, userAgents, referers []string, maxConns int, mtls *MTLSConfig) (*Cannon, error) {
+	// auto-prepend scheme if missing (e.g. "127.0.0.1:8000" -> "http://127.0.0.1:8000")
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "http://" + rawURL
+	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("invalid URL: could not determine host from %q", rawURL)
+	}
 	host := parsed.Host
 
+	tlsCfg, err := buildTLSConfig(mtls)
+	if err != nil {
+		return nil, fmt.Errorf("mTLS config error: %w", err)
+	}
+
 	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:     tlsCfg,
 		MaxIdleConnsPerHost: maxConns,
-		MaxConnsPerHost:     maxConns, // hard cap on open TCP connections to target
+		MaxConnsPerHost:     maxConns,
 		DisableKeepAlives:   false,
 	}
 	client := &http.Client{
@@ -239,6 +297,9 @@ func main() {
 	refFile := flag.String("ref-file", "", "Path to file with Referer strings (one per line)")
 	duration := flag.Duration("duration", 0, "How long to run, e.g. 30s, 5m (0 = run forever)")
 	rps := flag.Int("rps", 0, "Max requests per second across all goroutines (0 = no limit)")
+	mtlsCert := flag.String("mtls-cert", "", "Client certificate file (PEM) for mTLS")
+	mtlsKey  := flag.String("mtls-key",  "", "Client private key file (PEM) for mTLS")
+	mtlsCA   := flag.String("mtls-ca",   "", "CA certificate file (PEM) to verify server (enables mTLS)")
 	flag.Parse()
 
 	if *targetURL == "" {
@@ -276,7 +337,13 @@ func main() {
 		maxConns = 1<<31 - 1 // effectively unlimited
 	}
 
-	cannon, err := newCannon(*targetURL, userAgents, referers, maxConns)
+	mtlsCfg := &MTLSConfig{
+		certFile: *mtlsCert,
+		keyFile:  *mtlsKey,
+		caFile:   *mtlsCA,
+	}
+
+	cannon, err := newCannon(*targetURL, userAgents, referers, maxConns, mtlsCfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -294,6 +361,13 @@ func main() {
 		fmt.Printf("[*] Max conns   : %d open TCP connections\n", *conns)
 	} else {
 		fmt.Println("[*] Max conns   : UNLIMITED")
+	}
+
+	if *mtlsCert != "" {
+		fmt.Printf("[*] mTLS        : cert=%s key=%s\n", *mtlsCert, *mtlsKey)
+	}
+	if *mtlsCA != "" {
+		fmt.Printf("[*] mTLS CA     : %s (server verification enabled)\n", *mtlsCA)
 	}
 
 	if *duration > 0 {
